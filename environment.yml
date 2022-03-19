@@ -1,4 +1,4 @@
-name: full_scipy_conda_pmagpy
+name: paleostats
 channels:
   - defaults
 dependencies:
