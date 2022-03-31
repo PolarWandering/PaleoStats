@@ -11,4 +11,3 @@ dependencies:
   - jupyter
   - conda-forge::python-wget
   - seaborn
-prefix: /home/jovyan/.conda/envs/paleostats
