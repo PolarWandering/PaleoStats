@@ -198,19 +198,25 @@ def unroll_curve(curve, delta_t=0.1):
     R2 = rotation.from_rotvec(-angle * np.array([0,0,1]))
     
     # Composition of rotations
-    R = R2 * R1
+    R0 = R2 * R1
     
-    assert np.linalg.norm(R.apply(f0) - [0,0,1]) < 0.001
+    assert np.linalg.norm(R0.apply(f0) - [0,0,1]) < 0.001
     f_derivative_normalized = f_derivative / np.linalg.norm(f_derivative)
-    assert np.linalg.norm(R.apply(f_derivative_normalized) - [1,0,0]) < 0.001, 'The obtained initial rotation R(0) does not satisfy R(0)df(0)=[c,0,0]. Instead, the rotation gives {}'.format(R.apply(f_derivative_rotated_normalized))
+    assert np.linalg.norm(R0.apply(f_derivative_normalized) - [1,0,0]) < 0.001, 'The obtained initial rotation R(0) does not satisfy R(0)df(0)=[c,0,0]. Instead, the rotation gives {}'.format(R.apply(f_derivative_rotated_normalized))
     
-    f_star[0,:] = [0,0,0]
-    Rotation[0,:,:] = R.as_matrix()
+    # This doesnt work
+    # f_star[0,:] = [0,0,0]
+    # Rotation[0,:,:] = R0.as_matrix()
+    # f_ = f_star[0,:]
+    # R = Rotation[0,:,:]
     
-    f_ = f_star[0,:]
-    R = Rotation[0,:,:]
+    f_ = [0,0,0]
+    R = R0.as_matrix()
+    f_star[0,:] = f_
+    Rotation[0,:,:] = R
     
     # Iterative steps
+    #print('f_star: ', f_star[0:2,:])
     
     for idx in range(len(curve.time_values)-1):
     
@@ -231,7 +237,9 @@ def unroll_curve(curve, delta_t=0.1):
         f_star[idx+1,:] = f_ 
         assert np.abs(f_star[idx+1,2]) < 0.01, 'Reduce the solver time step to ensure the solution is correct. The z-component of f^* gives {} instead of 0.0'.format(f_star[idx+1,2])
         Rotation[idx+1,:,:] = R
-    
+        
+    #print('f_star: ', f_star[0:2,:])
+        
     return curve.time_values, f_star, Rotation
 
 
@@ -376,8 +384,7 @@ def spherical_spline(times, knot_values, smoothing, precision=0.1, ode_stepsize=
         
         ### Unroll curve ###
         time, f_star, Rotation = unroll_curve(curve, delta_t=ode_stepsize)
-        #print('f:', f_star[0:3, :])
-        
+
         # Update rotation and f* from unrolling
         curve.update_rotation(Rotation)
         curve.update_unroll(f_star)
@@ -395,32 +402,17 @@ def spherical_spline(times, knot_values, smoothing, precision=0.1, ode_stepsize=
         X_star = csaps(times, D_star[:,0], curve.time_values, weights=weights, smooth=smoothing)
         Y_star = csaps(times, D_star[:,1], curve.time_values, weights=weights, smooth=smoothing)
         
-        #print(X_star[0], Y_star[0])
-        #print(curve.knot_values[0,:])
-        #print(D_star[0:4, :])
-        
-        #plt.figure()
-        #plt.scatter(times, D_star[:,1])
-        #plt.plot(curve.time_values, Y_star)
-        #plt.scatter(times, D_star[:,0])
-        #plt.plot(curve.time_values, X_star)
-        
         K = roll_points(curve, time_steps, np.array([X_star, Y_star, np.zeros(X_star.shape[0])]).T)
-        #print('K: ', K[0,:])
-        #K = roll_points(curve, times, curve.planar_values)
-        #print(K)
-        ### Update curve ###
-        #curve = roll_curve(curve.time_values, K, delta_t=precision)
-        #curve = roll_curve(curve.time_values, np.array([X_star, Y_star, np.zeros(X_star.shape[0])]).T, delta_t=precision)
+
         curve = S2Curve(time_values=time_steps,
                         knot_values=K)
         all_curves[idx_iter] = curve
-
+        
         if idx_iter > 1:
             old_curve = all_curves[idx_iter-1]
             err = np.max(np.linalg.norm(curve.knot_values - old_curve.knot_values, axis=1))
             if err < tol: 
-                print("Maximul tolerance reached.")
+                print("Maximul tolerance reached after a total of {} iterations.".format(n_iter))
                 break
         
     return curve
