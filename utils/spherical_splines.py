@@ -229,6 +229,8 @@ def unroll_curve(curve, delta_t=0.1):
             
             f = curve.evaluate(t, order=0)
             df = curve.evaluate(t, order=1)
+            assert not np.any(np.isnan(f)), 'The evaluation of f in time {} includes nan values: {}'.format(t, f)
+            assert not np.any(np.isnan(df)), 'The evaluation of df in time {} includes nan values: {}'.format(t, df)
             f_ += dtt * np.dot(R, df)
             f_[-1] = 0  # we force the last component of f* to be zero 
             R += dtt * np.dot(R, skew_matrix(np.cross(df,f)))
@@ -365,15 +367,47 @@ def roll_points(curve, point_times, D):
 #######################################################################
 
 
-def spherical_spline(times, knot_values, smoothing, precision=0.1, ode_stepsize=0.01, n_iter=2, tol=0.001):
+def spherical_spline(times, 
+                     knot_values, 
+                     smoothing, 
+                     precision=0.1, 
+                     ode_stepsize=0.01, 
+                     n_iter=2, 
+                     tol=0.001, 
+                     weights=None, 
+                     fix_origin=True):
+    
+    # We define internal variables for times, knot_values and weights 
+    times_ = np.array(times)
+    knot_values_ = np.array(knot_values)
+    if weights is None:
+        weights_ = np.ones(len(times_))
+    else:
+        weights_ = np.array(weights)
+    
+    idx_ord = np.argsort(times_)
+    
+    times_ = times_[idx_ord]
+    knot_values_ = knot_values_[idx_ord, :]
+    weights_ = weights_[idx_ord]
+    
+    # We inclide the origin of the path 
+    if fix_origin:
+        if times_[0] > 0.001:
+            times_ = np.insert(times_, 0, 0.0)
+            knot_values_ = np.insert(knot_values_, 0, [0., 0., 1.], axis=0)
+            weights_ = np.insert(weights_, 0, 100*np.sum(weights_))
+        else:
+            weights_[0] = 100*np.sum(weights_)
     
     # We first define a curve with the values we have in the dataset
-    curve_original = S2Curve(time_values=times,
-                             knot_values=knot_values)
-    
+    curve_original = S2Curve(time_values=times_[[0,-1]],
+                             knot_values=knot_values_[[0,-1]])
+
     # and then we use it to construct a more finer curve
     #time_steps = np.unique(np.sort(np.concatenate([np.arange(0, df.Time.max(), params.delta), df.Time.values])))
-    time_steps = np.arange(np.min(times), np.max(times), precision)
+
+    time_steps = np.arange(np.min(times_), np.max(times_)-0.0001, precision)
     knot_steps = np.array([curve_original.evaluate(t,0) for t in time_steps])
 
     curve = S2Curve(time_values=time_steps,
@@ -384,23 +418,16 @@ def spherical_spline(times, knot_values, smoothing, precision=0.1, ode_stepsize=
         
         ### Unroll curve ###
         time, f_star, Rotation = unroll_curve(curve, delta_t=ode_stepsize)
-
         # Update rotation and f* from unrolling
         curve.update_rotation(Rotation)
         curve.update_unroll(f_star)
 
         ### Unroll points ###
-        D_star = unroll_points(curve, times, knot_values)
+        D_star = unroll_points(curve, times_, knot_values_)
         
         ### Fit Splines ###
-
-        # Weight first node if we want to reinforce origin of coordinates to be fixed
-        weights = np.ones(len(times))
-        if times[0] < 0.001:
-            weights[0] = 100
-            
-        X_star = csaps(times, D_star[:,0], curve.time_values, weights=weights, smooth=smoothing)
-        Y_star = csaps(times, D_star[:,1], curve.time_values, weights=weights, smooth=smoothing)
+        X_star = csaps(times_, D_star[:,0], curve.time_values, weights=weights_, smooth=smoothing)
+        Y_star = csaps(times_, D_star[:,1], curve.time_values, weights=weights_, smooth=smoothing)
         
         K = roll_points(curve, time_steps, np.array([X_star, Y_star, np.zeros(X_star.shape[0])]).T)
 
