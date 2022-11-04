@@ -24,9 +24,23 @@ from csaps import csaps
 
 
 def cart2sph(X, radians=True):
-    '''
-    X : (N,3) numpy array
-    '''
+    """
+    Cartesian to spherical coordinate operator.
+    
+    Parameters
+    ----------
+    X : array_like, (N,3) 
+        Cartesian coordinates. 
+    radians : bool, optional
+        Whether to use radians or degrees. 
+        
+    Returns
+    -------
+    Y : array_like, (N,2)
+        Spherical coordinates
+    
+    """
+    
     Y = np.zeros((X.shape[0], 2))
     Y[:,0] = np.arctan2(X[:,1], X[:,0])   # Longitude
     Y[:,1] = np.arcsin(X[:,2])            # Latitude
@@ -36,14 +50,23 @@ def cart2sph(X, radians=True):
     
     if not radians:
         Y *= 180. / np.pi
-    
     return Y
 
 
 def sph2cart(v):
     """
-    v[0] = theta - Latitude
-    v[1] = phi - Longitude
+    Spherical to cartesian coordinates. 
+    
+    Parameters
+    ----------
+    v : array_like, (2,)
+        Two vector composed on (latitude, longitude)
+
+    Returns 
+    -------
+    array_like, (3,)
+        Vector with unit norm representing the point in the sphere.
+    
     """
     
     x = np.cos(v[0]) * np.cos(v[1])  
@@ -54,9 +77,27 @@ def sph2cart(v):
 
 
 def slerp_interpolation(p1, p2, t, order, tmin=None, tmax=None):
-    '''
-    Returns the Slerp interpolation between two unitary vectors on the 3D sphere following a great circle
-    '''
+    """
+    Returns the Slerp interpolation between two unitary vectors on the 3D sphere following a great circle.
+    
+    Parameters
+    ----------
+    p1, p2 : array_like, (3,)
+        Vectors used for the interpolation. 
+    t : float, between 0 and 1. 
+        Parameter for the interpolations. p=0 will return p1 while p=1 will give p2. 
+    order : {0,1}
+        Order of the interpolation. order=0 refers to the classical interpolation, while order=1 is for the derivative.
+    tmin, tmax : float
+        Times used for computing the time derivative. Just needed for order=1. 
+        
+    Returns
+    -------
+    array_like, (3,)
+        Slerp interpolation
+    
+    """
+    
     angle = np.arccos(np.dot(p1,p2))
 
     if order == 0:
@@ -68,11 +109,40 @@ def slerp_interpolation(p1, p2, t, order, tmin=None, tmax=None):
         
 
 def skew_matrix(v):
+    """
+    Given a vector, defines a matrix that is equivalent to the cross product. That is, M(v)([.]) = v x [.]
+    
+    Parameters
+    ----------
+    v : array_like, (3,)
+        Vector that defines the cross product operator.
+        
+    Returns 
+    -------
+    array_like, (3,3)
+        Matrix that defines the linear operator.
+    
+    """
+
     skv = np.roll(np.roll(np.diag(v.flatten()), 1, 1), -1, 0)
     return skv - skv.T
 
 
 def equal_distance_projection(X):
+    """
+    Equal distance projection around the north pole as defined in Jupp et. al. (1987)
+    
+    Parameters
+    ----------
+    X : array_like, (N,3)
+        List of points in the sphere to project
+        
+    Returns
+    -------
+    Z : array_like, (N,3)
+        Projected points in the plane, last component equals zero. 
+    
+    """
     
     Y = cart2sph(X, radians=True)
     Z = np.zeros(X.shape)
@@ -88,26 +158,51 @@ def equal_distance_projection(X):
 #######################################################################
 
 class S2Curve:
-    '''
+    """
     Curve clase we are going to fit in the sphere.
     This will be consist in a series of timesteps where we can exactly evaluate the curve. For all the intermediate steps, we use the 
     great circle between adjacent knots to evalaute the function 
-    '''
+    """
     
     def __init__(self, time_values, knot_values):
+        """
+        Constructor for S2Curve object
         
-        self.time_values = time_values   # (N,)
-        self.knot_values = knot_values   # (N,3)
-        self.planar_values = None        # (N,3) last component is zero
-        self.Rotations = None            # (N,3,3)
+        Parameters
+        ----------
+        time_values : array_like, (N,)
+            Time where the curve is evaluated. 
+        knot_values : array_like, (N,3)
+            Cartesian coordinates of the points used to define the curve. Middle points will be interpolated using great circle. 
+        planar_values : array_like, (N,3), optional
+            Planar projection of the curve. Last component is always zero. 
+        Rotations : array_like, (N,3,3), optional
+            Rotations needed to unrill/rolled the curve. 
+        """
+        
+        self.time_values = time_values  
+        self.knot_values = knot_values   
+        self.planar_values = None        
+        self.Rotations = None            
     
     
     def evaluate(self, t, order=0):
         """
         Return evaluation of the curve
         
-        Parameters:
-        - order: order correspondint to the evaluation of the derivative. If equals to 0 this is just the evaluation of the function. 
+        Parameters
+        ----------
+        t : float
+            time we we evaluate the function or any of its derivatives.
+        order : int, optional
+            order correspondint to the evaluation of the derivative. 
+            If equals to 0 this is just the evaluation of the function. 
+        
+        Returns 
+        -------
+        array_like
+            Estimation of the function evaluations / gradients on the sphere based on the 
+            infomation provided by the curve. 
         
         """
         assert (np.min(self.time_values) <= t) & (t <= np.max(self.time_values)), 'Age value is not inside the evaluation window.'
@@ -115,7 +210,6 @@ class S2Curve:
         idx_sup = np.min(np.where(self.time_values - t >= 0.0))
 
         if idx_inf == idx_sup and order == 0:
-            #print('Evaluating self node.')
             return self.knot_values[idx_inf, :]
         elif idx_inf == idx_sup and order > 0:
             idx_sup += 1
@@ -138,6 +232,9 @@ class S2Curve:
         self.planar_values = unrolled
     
     def plot(self):
+        """
+        Plotting capacity for quick check on the trajectory of the curve. 
+        """
         plt.figure(figsize=(15,8))
         ax1 = plt.subplot2grid((2,2), (0,0), rowspan=2, projection=ccrs.Orthographic(central_latitude=90))
         ax2 = plt.subplot2grid((2,2), (0,1))
@@ -161,11 +258,28 @@ class S2Curve:
 
 
 def unroll_curve(curve, delta_t=0.1):
-    '''
-    Unroll one single curve f to f* following the Appendix in Jupp et. al. (1987)
+    """
+    Unrolling curve from the sphere to a series of points in the plane and the rotation requiered
+    to make the unrolling. 
     
-    Given a Curve() object, we return the 
-    '''    
+    Parameters 
+    ----------
+    curve : S2Curve object
+        Base curve with respect we are going to create an unrolled version
+    delta_t: float, optional
+        Timestep for the differential equation solver
+    
+    Returns 
+    -------
+    curve.time_values : array_like
+        Time evaluations of the curve
+    f_star : array_like, (N,3)
+        Unrolled points based on the curve
+    Rotation : array_like, (N,3,3)
+        Series of rotations needed to unroll poitns
+    
+    """
+    
     N = curve.time_values.shape[0]
     
     f_star = np.zeros((N,3))    # We leave the third coordinate always equal to zero for simplicity
@@ -193,7 +307,6 @@ def unroll_curve(curve, delta_t=0.1):
     
     assert np.abs(f_derivative_rotated_normalized[2]) < 0.0001, 'After rotation, the gradient is not paralel to (0,0,1). Instead it gives {}'.format(f_derivative_rotated_normalized)
     
-    
     angle = np.arctan2(f_derivative_rotated_normalized[1], f_derivative_rotated_normalized[0])
     R2 = rotation.from_rotvec(-angle * np.array([0,0,1]))
     
@@ -204,19 +317,10 @@ def unroll_curve(curve, delta_t=0.1):
     f_derivative_normalized = f_derivative / np.linalg.norm(f_derivative)
     assert np.linalg.norm(R0.apply(f_derivative_normalized) - [1,0,0]) < 0.001, 'The obtained initial rotation R(0) does not satisfy R(0)df(0)=[c,0,0]. Instead, the rotation gives {}'.format(R.apply(f_derivative_rotated_normalized))
     
-    # This doesnt work
-    # f_star[0,:] = [0,0,0]
-    # Rotation[0,:,:] = R0.as_matrix()
-    # f_ = f_star[0,:]
-    # R = Rotation[0,:,:]
-    
     f_ = [0,0,0]
     R = R0.as_matrix()
     f_star[0,:] = f_
     Rotation[0,:,:] = R
-    
-    # Iterative steps
-    #print('f_star: ', f_star[0:2,:])
     
     for idx in range(len(curve.time_values)-1):
     
@@ -240,17 +344,25 @@ def unroll_curve(curve, delta_t=0.1):
         assert np.abs(f_star[idx+1,2]) < 0.01, 'Reduce the solver time step to ensure the solution is correct. The z-component of f^* gives {} instead of 0.0'.format(f_star[idx+1,2])
         Rotation[idx+1,:,:] = R
         
-    #print('f_star: ', f_star[0:2,:])
-        
     return curve.time_values, f_star, Rotation
 
 
 def roll_curve(times, X, delta_t=0.1):
-    '''
-    Arguments:
-        - time: (N,) 
-        - X: (N, 3) numpy array
-    '''
+    """
+    We roll the points that define a curve 
+    
+    Parameters
+    ----------
+    times : array_like, (M,)
+        Times associated to each point in the curve.
+    X : array_like, (M,3)
+        Points in the plane to roll
+    
+    Returns 
+    -------
+    S2Curve object with the curve rolled in the sphere. 
+        
+    """
     
     N = X.shape[0]
     
@@ -265,7 +377,6 @@ def roll_curve(times, X, delta_t=0.1):
     df = [1,0,0] 
     
     # Initial condition for the rotation needs to be pick such that f*'(0) = R(0) f'(0) 
-    #R = np.eye(3)
     df_star = Df_star[0,:]
     df_star /= np.linalg.norm(df_star)
     angle = np.arctan2(df_star[1], df_star[0])
@@ -277,25 +388,18 @@ def roll_curve(times, X, delta_t=0.1):
     Rotation[0,:,:] = R
     
     # We compute the derivative of f*
-    
     for idx in range(len(times)-1):
-        
         t = times[idx]
         next_t = times[idx+1]
-        
         f_star = X[idx,:,]
         df_star = Df_star[idx,:]
-        
         while t < next_t:
-            
             dtt = min(delta_t, next_t - t)
-            
             f += dtt * np.dot(R.T, df_star)
             # Renormalize for numerical error
             f /= np.linalg.norm(f)
             R += dtt * np.dot(skew_matrix(np.cross(df_star, [0,0,1])), R)
             t += dtt
-
         F[idx+1,:] = f
         Rotation[idx+1,:,:] = R
 
@@ -304,14 +408,23 @@ def roll_curve(times, X, delta_t=0.1):
 
 
 def unroll_points(curve, point_times, D):
-    '''
+    """
     We unroll the points D using a given curve.
     
-    Arguments:
-        - curve: Curve() object
-        - D: (M,3)
-        - point_times: (M,)
-    '''
+    Parameters
+    ----------
+    curve : S2curve object
+        Curve with respect the rolling is going to be performed. 
+    point_times : array_like, (M,)
+        Times associated to each point.
+    D : array_like, (M,3)
+        Matrix of points to be rolled to the sphere with respect to a given curve.
+    
+    Returns 
+    -------
+    D_star : array_like (M,)
+        
+    """
     
     D_star = np.zeros(D.shape)
     
@@ -333,17 +446,31 @@ def unroll_points(curve, point_times, D):
 
 
 def roll_points(curve, point_times, D):
-    '''
-    Arguments
-        - point_times: (M,)
-        - D: (M,3) with last component equal to zero
-    '''
+    """
+    Rolling of points in the plane to the sphere with respect to a reference curve. 
+    
+    Parameters
+    ----------
+    curve : S2curve object
+        Curve with respect the unrolling is going to be performed. 
+    point_times : array_like, (M,)
+        Times associated to each point.
+    D : array_like (M,3) 
+        Matrix of points to be rolled to the sphere with respect to a given curve.
+        The last component must be equal to zero.
+        
+    Returns
+    -------
+    K : array_like, (M,3)
+        Array of rolled points.
+    
+    """
     
     K = np.zeros((len(point_times), 3))
     
     for idx, t in enumerate(point_times):
         # First we identify the right time 
-        idx_inf = np.max(np.where(curve.time_values - t <= 0.0))
+        idx_inf = np.max(np.where(curve.time_values-t <= 0.0))
         # Evaluate rotation there and unrolled path there
         R = curve.Rotations[idx_inf,:,:]
         f = curve.knot_values[idx_inf,:]
@@ -358,7 +485,6 @@ def roll_points(curve, point_times, D):
         rotation_axis /= np.linalg.norm(rotation_axis)
         R0 = rotation.from_rotvec(angle * rotation_axis)
         K[idx,:] = R0.apply(f)
-        #print(f, f_star, v)
     return K
         
         
@@ -372,14 +498,68 @@ def spherical_spline(times,
                      smoothing, 
                      precision=0.1, 
                      ode_stepsize=0.01, 
-                     n_iter=2, 
+                     n_iter=5, 
                      tol=0.001, 
                      weights=None, 
-                     fix_origin=True):
+                     fix_origin=True, 
+                     reference_hemisphere='North'):
+    
+    """
+    Constructs a smooth fitiing on points in the sphere based on the methods introduced 
+    in Jupp et. al. (1987). This function executes the rolling and unrolling of points from 
+    the sphere to the 2D plane and fits spline in the plane. 
+    
+    Parameters
+    ----------
+    times : array_like, (N,)
+        Time series associated with the points in the sphere.
+    knot_values: 2D array_like, (N,3)
+        Cartesian cordinates of the points to fit. These points must be restricted to 
+        lie in the sphere
+    smoothing: float between 0 and 1. 
+        Smoothing parameter used in the 2D splines method. Lower values correspond to more 
+        smoothing, while larger value will weight more the data over the smoothing. For more 
+        information, see https://csaps.readthedocs.io/en/latest/index.html\
+    precision: float, positive, optional
+        Precision in time units of the curve. 
+    ode_stepsize: float, positive, optional
+        Stepsize of the numerical solver for the differential equations involved in the 
+        rolling/unrolling of the curve from the sphere to the plane and viceversa. 
+    n_iter: int, optional
+        Number of iterations of unrolling-splines fit-rolling. If the curve doens't 
+        significatively change after certain iterations, the method stops. 
+    tol: float, optional
+        Total tolerance for stopping the iteration procedure. 
+    weights: array_like, (N,), optional
+        Weights use for the splines. By defaul, the weights are uniform across points. 
+        However, we can manually set the importance we want to give to each pole by 
+        increasing its weight. 
+    fix_origin: bool, optional
+        Boolean variable for setting the position of the first point in the path (age=0)
+        in the North or South pole, depending the value of `reference)_hemisphere`.
+    reference_hemispher: {'South', 'North'}
+        Reference pole using to construct the fit. This will mostly depend of the location of 
+        the points, but both options are equivalent and can be used. 
+        
+    Returns
+    -------
+    curve.time_values: array_like, (M,)
+        Time series associated to the final curve fit
+    curve.knot_values: array_like, (M,3)
+        Cartesian coordiantes of the final splines. 
+
+    Notice that the internals of this funciton include objects of the class `CurveS2`. This
+    has been implemented in order to simplify the manipulations of the code, but the function 
+    just resturns the time series and the cartesian coordinates of the spline. 
+
+    """
     
     # We define internal variables for times, knot_values and weights 
     times_ = np.array(times)
-    knot_values_ = np.array(knot_values)
+    if reference_hemisphere=='North':
+        knot_values_ = np.array(knot_values)
+    elif reference_hemisphere=='South':
+        knot_values_ = -np.array(knot_values)
     if weights is None:
         weights_ = np.ones(len(times_))
     else:
@@ -403,9 +583,6 @@ def spherical_spline(times,
     # We first define a curve with the values we have in the dataset
     curve_original = S2Curve(time_values=times_[[0,-1]],
                              knot_values=knot_values_[[0,-1]])
-
-    # and then we use it to construct a more finer curve
-    #time_steps = np.unique(np.sort(np.concatenate([np.arange(0, df.Time.max(), params.delta), df.Time.values])))
 
     time_steps = np.arange(np.min(times_), np.max(times_)-0.0001, precision)
     knot_steps = np.array([curve_original.evaluate(t,0) for t in time_steps])
@@ -441,8 +618,12 @@ def spherical_spline(times,
             if err < tol: 
                 print("Maximul tolerance reached after a total of {} iterations.".format(n_iter))
                 break
+    
+    if reference_hemisphere=='South':
+        curve = S2Curve(time_values=time_steps,
+                        knot_values=-K)
         
-    return curve
+    return curve.time_values, curve.knot_values
 
 
 #######################################################################
